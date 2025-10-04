@@ -20,6 +20,8 @@ library(sf)
 
 ## Carregamento e Tratamento dos dados
 
+Foram usadas todas as tabelas de 2024 do link: https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+
 ```{r}
 yellow_taxis_list = list()
 Months <- list('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
