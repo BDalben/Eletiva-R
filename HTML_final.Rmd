@@ -1,0 +1,213 @@
+---
+title: "Trab R"
+author: "Bruno Dalben"
+date: "2025-10-04"
+output: html_document
+---
+
+## Carregamento das bibliotecas
+
+
+```{r message = FALSE, results='hide', warning=FALSE}
+library(arrow)
+library(plotly)
+library(tidyverse)
+library(reshape2)
+library(scales)
+library(priceR)
+library(sf)
+```
+
+## Carregamento e Tratamento dos dados
+
+```{r}
+yellow_taxis_list = list()
+Months <- list('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+Months_ordered <- list('01/2024 - Jan', '02/2024 - Feb', '03/2024 - Mar', '04/2024 - Apr', '05/2024 - May', '06/2024 - Jun', '07/2024 - Jul', '08/2024 - Aug', '09/2024 - Sep', '10/2024 - Oct', '11/2024 - Nov', '12/2024 - Dec')
+k = 1
+for (i in list.files("Yellow Taxi 2024")){
+  df <- read_parquet(paste0("Yellow Taxi 2024\\",i))
+  df[['Month']] <- Months[[k]]
+  df[['month']] <- Months_ordered[[k]]
+  k = k+1
+  yellow_taxis_list <- c(yellow_taxis_list, list(df))
+}
+
+yellow_taxis_df <- bind_rows(yellow_taxis_list) #juntar todos os meses em um data frame
+
+remove(yellow_taxis_list)
+
+k=1
+Driver_list <- list()
+for (i in list.files("Driver 2024")){
+  df <- read_parquet(paste0("Driver 2024\\",i)) %>% select('hvfhs_license_num', 'PULocationID', 'DOLocationID', 'driver_pay') #selecionar apenas colunas a serem utilizadas devido ao alto volume de dados
+  df[['Month']] <- Months[[k]]
+  k = k+1
+  Driver_list <- c(Driver_list, list(df))
+}
+
+
+Driver_df <- bind_rows(Driver_list) #juntar todos os meses em um data frame
+remove(Driver_list)
+
+```
+
+## Glossário de Variáveis - Corridas de Táxi Amarelo (Yellow Taxi Trip Records)
+
+### VendorID
+Um código que indica o provedor de tecnologia que registrou a corrida.
+* `1`: Creative Mobile Technologies, LLC
+* `2`: VeriFone Inc.
+
+### tpep_pickup_datetime
+A data e a hora em que o taxímetro foi acionado (início da corrida).
+
+### tpep_dropoff_datetime
+A data e a hora em que o taxímetro foi desligado (fim da corrida).
+
+### passenger_count
+O número de passageiros no veículo. Este valor é inserido manualmente pelo motorista.
+
+### trip_distance
+A distância da viagem em milhas, registrada pelo taxímetro.
+
+### PULocationID
+O ID da Zona de Táxi da TLC (Taxi Zone) onde o taxímetro foi acionado (local de embarque).
+
+### DOLocationID
+O ID da Zona de Táxi da TLC (Taxi Zone) onde o taxímetro foi desligado (local de desembarque).
+
+### RatecodeID
+O código da tarifa final que estava em vigor no final da viagem.
+* `1`: Tarifa padrão
+* `2`: JFK (Aeroporto John F. Kennedy)
+* `3`: Newark (Aeroporto de Newark)
+* `4`: Nassau ou Westchester
+* `5`: Tarifa negociada
+* `6`: Viagem em grupo
+
+### store_and_fwd_flag
+Indica se o registro da viagem foi mantido na memória do veículo antes de ser enviado ao servidor.
+* `Y`: Sim (armazenado e encaminhado)
+* `N`: Não (enviado em tempo real)
+
+### payment_type
+Um código numérico que indica como o passageiro pagou pela viagem.
+* `1`: Cartão de crédito
+* `2`: Dinheiro
+* `3`: Sem cobrança
+* `4`: Disputa
+* `5`: Desconhecido
+* `6`: Viagem cancelada
+
+### fare_amount
+A tarifa calculada com base no tempo e na distância da viagem.
+
+### extra
+Cobranças extras e sobretaxas diversas. Inclui taxas para horário de pico (`peak hours`) e viagens noturnas (`overnight`).
+
+### mta_tax
+Taxa de $0.50 da MTA (Metropolitan Transportation Authority) que é automaticamente adicionada à tarifa.
+
+### tip_amount
+Valor da gorjeta. Este valor é aplicável apenas para pagamentos com cartão de crédito.
+
+### tolls_amount
+Valor total de todos os pedágios pagos durante a viagem.
+
+### improvement_surcharge
+Sobretaxa de melhoria de $1.00 (`improvement surcharge`).
+
+### total_amount
+O custo total da viagem. Para pagamentos em dinheiro, este valor não inclui a gorjeta.
+
+### congestion_surcharge
+Sobretaxa de congestionamento (`congestion surcharge`), geralmente aplicável a viagens em certas áreas de Manhattan.
+
+### airport_fee
+Taxa de acesso ao aeroporto (`airport fee`) de $1.25, quando aplicável.
+
+### Month
+Mês em que foram realizadas as corridas.
+
+
+
+## Glossário de Variáveis - HVFHS Trip Records
+
+
+### hvfhs_license_num
+O número de licença da empresa.
+* `HV0002`: Juno
+* `HV0003`: Uber
+* `HV0004`: Via
+* `HV0005`: Lyft
+
+### PULocationID
+O ID da Zona de Táxi da TLC (`TLC Taxi Zone`) para o local de embarque.
+
+### DOLocationID
+O ID da Zona de Táxi da TLC (`TLC Taxi Zone`) para o local de desembarque.
+
+### driver_pay
+O valor total que o motorista recebeu pela viagem.
+
+### Month
+Mês em que foram realizadas as corridas.
+
+```{r, include=FALSE}
+yellow_taxis_df$Month <- factor(yellow_taxis_df$Month, levels = month.abb, ordered = TRUE)
+Driver_df$Month <- factor(Driver_df$Month, levels = month.abb, ordered = TRUE)
+```
+
+
+
+## EDA
+
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+driv_names <- data.frame("hvfhs_license_num"= c('HV0002', 'HV0003', 'HV0004', 'HV0005'), 'app'=c('Juno', 'Uber', 'Via', 'Lyft'))
+Driver_df_lbl <- left_join(Driver_df, driv_names, by = 'hvfhs_license_num')
+market_share_driv <- Driver_df_lbl %>% group_by(app) %>% summarise('Ammount($)'=sum(driver_pay))
+pie(market_share_driv$`Ammount($)`, labels = format_dollars(market_share_driv$`Ammount($)`), main = paste0(format_dollars(sum(market_share_driv$`Ammount($)`)),' gastos com motoristas de aplicativo em NYC em 2024'))
+legend('topright', market_share_driv$app, fill=colors())  
+```
+
+Uber detém uma dominância esmagadora, com praticamente 75% do Market Share de corridas por aplicativo em NYC, consolidando sua posição como a escolha primária para passageiros. É notável que apenas a Lyft e a Uber tiveram corridas registradas em 2024. O volume financeiro movimentado é alarmante: quase 5 bilhões de dólares foram destinados ao pagamento de motoristas, o que demonstra o gigantismo deste setor e seu profundo impacto na economia da cidade e na vida de milhares de trabalhadores.
+
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+trips_by_month_taxi <- yellow_taxis_df %>% group_by(Month) %>% summarise('Number of Trips Yellow Taxi'= n())
+trips_by_month_driver <- Driver_df %>% group_by(Month) %>% summarise('Number of Trips Driver App'= n())
+amount_by_month <- full_join(trips_by_month_driver, trips_by_month_taxi, by='Month')
+amount_by_month <- melt(amount_by_month, id.vars='Month')
+ggplot(amount_by_month, aes(x= Month, y=value, fill=variable)) + labs(title= 'Numero de Viagens: Táxi x App NYC 2024') + geom_col() + scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6))
+```
+
+A análise mensal revela que as corridas por aplicativo não são apenas mais numerosas, mas representam a grande maioria do mercado, ofuscando os táxis amarelos tradicionais. Alguns meses apresentam movimento maior. Não está claro qual é o caso de Março e Maio, por exemplo, mas em Dezembro esse aumento é possivelmente impulsionado pela temporada de festas, que inclui eventos, turismo e compras de Natal, intensificando a necessidade de transporte na cidade.
+
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+nyc_zoning <- read_sf("taxi_zones\\taxi_zones.shp")
+b=yellow_taxis_df %>% group_by(DOLocationID, month)%>%summarise('Occurences as Destination'=n())
+nyc_zoning <- nyc_zoning %>% left_join(b, by=c('LocationID' = 'DOLocationID'))
+ny_map_DO <- ggplot(nyc_zoning) + geom_sf(aes(fill=`Occurences as Destination`, frame = month)) + ggtitle('Number of times as a trip destination') + scale_fill_gradient(low = "lightyellow", high = "darkred")
+ggplotly(ny_map_DO)
+```
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+nyc_zoning <- read_sf("taxi_zones\\taxi_zones.shp")
+b=yellow_taxis_df %>% group_by(PULocationID, month)%>%summarise('Number of Requests'=n())
+nyc_zoning <- nyc_zoning %>% left_join(b, by=c('LocationID' = 'PULocationID'))
+ny_map_PU <- ggplot(nyc_zoning) + geom_sf(aes(fill=`Number of Requests`, frame = month)) + ggtitle('Number of times as a trip origin') + scale_fill_gradient(low = "lightyellow", high = "darkred")
+ggplotly(ny_map_PU)
+```
+
+Os mapas de calor confirmam que Manhattan é o epicentro da atividade de táxis em Nova York, aparecendo de forma consistente como a origem e o destino mais comum. Este padrão condiz com o perfil socioeconômico do distrito; sendo uma opção de transporte relativamente mais cara, o táxi é mais utilizado por moradores e trabalhadores da região mais nobre da cidade. Além disso, a forte concentração de pontos turísticos, centros financeiros, hotéis e restaurantes em Manhattan naturalmente gera uma demanda massiva por embarques e desembarques, solidificando a área como o coração do transporte individual de passageiros em NYC.
+
+## Referências
+
+https://stackoverflow.com/questions/48920182/how-to-convert-months-as-factors-while-still-maintaining-the-months-in-sequence
+
+https://www.geeksforgeeks.org/r-language/r-pie-charts/
+
+https://www.geeksforgeeks.org/r-language/r-pie-charts/
